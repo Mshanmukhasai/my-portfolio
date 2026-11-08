@@ -7,6 +7,7 @@ import {
   addEducation,
   addProject,
   addSkill,
+  createPortfolioId,
   deleteAchievement,
   deleteProject,
   deleteSkill,
@@ -19,7 +20,7 @@ import {
   getProjects,
   getResume,
   getSkills,
-  readFileAsDataUrl,
+  loadPortfolio,
   updateAbout,
   updateAchievement,
   updateContact,
@@ -28,6 +29,7 @@ import {
   updateProject,
   updateResume,
   updateSkill,
+  uploadPortfolioFile,
 } from '../services/portfolioStorage.js'
 
 const navigation = [
@@ -98,7 +100,7 @@ const sections = {
       { name: 'demoUrl', label: 'Live demo URL', type: 'url' },
       { name: 'imageAlt', label: 'Project image description' },
     ],
-    file: { field: 'imageUrl', label: 'Project image', accept: ['image/jpeg', 'image/png', 'image/webp'], maxBytes: 1024 * 1024, sizeLabel: '1 MB' },
+    file: { field: 'imageUrl', folder: 'projects', asset: 'cover', label: 'Project image', accept: ['image/jpeg', 'image/png', 'image/webp'], maxBytes: 1024 * 1024, sizeLabel: '1 MB' },
   },
   education: {
     title: 'Education',
@@ -123,7 +125,7 @@ const sections = {
       { name: 'description', label: 'Description', multiline: true },
       { name: 'certificateUrl', label: 'Certificate link or image URL', type: 'url' },
     ],
-    file: { field: 'certificateUrl', label: 'Certificate image', accept: ['image/jpeg', 'image/png', 'image/webp'], maxBytes: 1024 * 1024, sizeLabel: '1 MB' },
+    file: { field: 'certificateUrl', folder: 'certificates', asset: 'certificate', label: 'Certificate image', accept: ['image/jpeg', 'image/png', 'image/webp'], maxBytes: 1024 * 1024, sizeLabel: '1 MB' },
   },
 }
 
@@ -185,6 +187,7 @@ function AdminDashboard({ path }) {
   const [formValues, setFormValues] = useState({})
   const [selectedFile, setSelectedFile] = useState(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [isDataLoading, setIsDataLoading] = useState(true)
   const [status, setStatus] = useState(null)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [refreshVersion, setRefreshVersion] = useState(0)
@@ -210,13 +213,6 @@ function AdminDashboard({ path }) {
   useEffect(() => {
     const sectionChanged = previousSection.current !== activeSection
     previousSection.current = activeSection
-    try {
-      setRecords(sectionReaders[activeSection]?.() ?? [])
-      if (activeSection === 'resume') setResume(getResume())
-      setStatus(null)
-    } catch (error) {
-      setStatus({ type: 'error', message: error.message || 'Saved portfolio data could not be loaded.' })
-    }
     if (sectionChanged) {
       setIsEditorOpen(false)
       setEditingRecord(null)
@@ -229,6 +225,26 @@ function AdminDashboard({ path }) {
       setFormValues(Object.fromEntries(sections[activeSection].fields.map((field) => [field.name, ''])))
       setIsEditorOpen(true)
       window.history.replaceState({}, '', window.location.pathname)
+    }
+
+    let isCurrent = true
+    setIsDataLoading(true)
+    loadPortfolio({ force: true })
+      .then(() => {
+        if (!isCurrent) return
+        setRecords(sectionReaders[activeSection]?.() ?? [])
+        if (activeSection === 'resume') setResume(getResume())
+        setRefreshVersion((version) => version + 1)
+        setStatus(null)
+      })
+      .catch((error) => {
+        if (isCurrent) setStatus({ type: 'error', message: error.message || 'Saved portfolio data could not be loaded.' })
+      })
+      .finally(() => {
+        if (isCurrent) setIsDataLoading(false)
+      })
+    return () => {
+      isCurrent = false
     }
   }, [activeSection])
 
@@ -260,6 +276,11 @@ function AdminDashboard({ path }) {
 
   async function handleSave(event) {
     event.preventDefault()
+    if (!event.currentTarget.checkValidity()) {
+      event.currentTarget.reportValidity()
+      return
+    }
+
     setIsSaving(true)
     setStatus(null)
     try {
@@ -270,32 +291,50 @@ function AdminDashboard({ path }) {
         }
         return [field.name, value.trim()]
       }))
+      const missingRequired = currentSection?.fields?.find((field) => (
+        field.required && !String(payload[field.name] ?? '').trim()
+      ))
+      if (missingRequired) {
+        setStatus({ type: 'error', message: `${missingRequired.label} is required.` })
+        event.currentTarget.elements[missingRequired.name]?.focus()
+        return
+      }
+
+      const recordId = editingRecord?.id || createPortfolioId()
       if (selectedFile && activeSection === 'profile') {
-        payload.photo = await readFileAsDataUrl(selectedFile, {
+        payload.photo = await uploadPortfolioFile(selectedFile, {
+          folder: 'profile',
+          id: 'main',
+          asset: 'avatar',
           maxBytes: 1024 * 1024,
           acceptedTypes: ['image/jpeg', 'image/png', 'image/webp'],
           label: 'Profile photo',
         })
       } else if (selectedFile && currentSection.file) {
-        payload[currentSection.file.field] = await readFileAsDataUrl(selectedFile, {
+        payload[currentSection.file.field] = await uploadPortfolioFile(selectedFile, {
+          folder: currentSection.file.folder,
+          id: recordId,
+          asset: currentSection.file.asset,
           maxBytes: currentSection.file.maxBytes,
           acceptedTypes: currentSection.file.accept,
           label: currentSection.file.label,
         })
       }
 
-      if (activeSection === 'profile') updateProfile(payload)
-      else if (activeSection === 'contact') updateContact(payload)
-      else if (activeSection === 'about') updateAbout(payload)
-      else if (editingRecord) sectionActions[activeSection].update(editingRecord.id, payload)
-      else sectionActions[activeSection].add(payload)
+      if (activeSection === 'profile') await updateProfile(payload)
+      else if (activeSection === 'contact') await updateContact(payload)
+      else if (activeSection === 'about') await updateAbout(payload)
+      else if (editingRecord) await sectionActions[activeSection].update(editingRecord.id, payload)
+      else await sectionActions[activeSection].add({ ...payload, id: recordId })
 
+      await loadPortfolio({ force: true })
       setRecords(sectionReaders[activeSection]())
+      if (activeSection === 'resume') setResume(getResume())
       setRefreshVersion((version) => version + 1)
       setIsEditorOpen(false)
       setEditingRecord(null)
       setSelectedFile(null)
-      setStatus({ type: 'success', message: `${currentSection.title} ${editingRecord ? 'updated' : 'saved'} successfully.` })
+      setStatus({ type: 'success', message: 'Details saved successfully.' })
     } catch (error) {
       setStatus({ type: 'error', message: error.message || 'Unable to save changes. Please try again.' })
     } finally {
@@ -303,16 +342,21 @@ function AdminDashboard({ path }) {
     }
   }
 
-  function handleDelete(record) {
+  async function handleDelete(record) {
     const label = getTitle(record, activeSection)
     if (!window.confirm(`Delete “${label}”? This cannot be undone.`)) return
+    setIsSaving(true)
+    setStatus(null)
     try {
-      sectionActions[activeSection].remove(record.id)
+      await sectionActions[activeSection].remove(record.id)
+      await loadPortfolio({ force: true })
       setRecords(sectionReaders[activeSection]())
       setRefreshVersion((version) => version + 1)
-      setStatus({ type: 'success', message: `${currentSection.title.slice(0, -1)} deleted successfully.` })
+      setStatus({ type: 'success', message: 'Details saved successfully.' })
     } catch (error) {
       setStatus({ type: 'error', message: error.message || 'Unable to delete this item.' })
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -324,8 +368,8 @@ function AdminDashboard({ path }) {
       setStatus({ type: 'error', message: 'Choose a PDF file for your resume.' })
       return
     }
-    if (file.size > 2 * 1024 * 1024) {
-      setStatus({ type: 'error', message: 'The resume PDF must be 2 MB or smaller for browser storage.' })
+    if (file.size > 5 * 1024 * 1024) {
+      setStatus({ type: 'error', message: 'The resume PDF must be 5 MB or smaller.' })
       return
     }
     setIsSaving(true)
@@ -333,15 +377,19 @@ function AdminDashboard({ path }) {
     try {
       const signature = new TextDecoder().decode(await file.slice(0, 5).arrayBuffer())
       if (signature !== '%PDF-') throw new Error('The selected file is not a valid PDF.')
-      const dataUrl = await readFileAsDataUrl(file, {
-        maxBytes: 2 * 1024 * 1024,
+      const url = await uploadPortfolioFile(file, {
+        folder: 'resume',
+        id: 'current',
+        asset: 'document',
+        maxBytes: 5 * 1024 * 1024,
         acceptedTypes: ['application/pdf'],
         label: 'Resume PDF',
       })
-      updateResume({ name: file.name, dataUrl })
+      await updateResume({ name: file.name, url })
+      await loadPortfolio({ force: true })
       setResume(getResume())
       setRefreshVersion((version) => version + 1)
-      setStatus({ type: 'success', message: 'Resume uploaded successfully.' })
+      setStatus({ type: 'success', message: 'Details saved successfully.' })
     } catch (error) {
       setStatus({ type: 'error', message: error.message || 'Unable to save the resume.' })
     } finally {
@@ -349,15 +397,20 @@ function AdminDashboard({ path }) {
     }
   }
 
-  function handleResumeDelete() {
+  async function handleResumeDelete() {
     if (!window.confirm('Delete the current resume?')) return
+    setIsSaving(true)
+    setStatus(null)
     try {
-      updateResume(null)
+      await updateResume(null)
+      await loadPortfolio({ force: true })
       setResume(null)
       setRefreshVersion((version) => version + 1)
-      setStatus({ type: 'success', message: 'Resume deleted successfully.' })
+      setStatus({ type: 'success', message: 'Details saved successfully.' })
     } catch (error) {
       setStatus({ type: 'error', message: error.message || 'Unable to delete the resume.' })
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -404,10 +457,13 @@ function AdminDashboard({ path }) {
         </header>
 
         <div className="dashboard-content">
-          {activeSection === 'dashboard' ? (
+          {isDataLoading ? (
+            <p className="dashboard-message-meta" role="status">Loading saved portfolio details…</p>
+          ) : activeSection === 'dashboard' ? (
             <>
+              {status && <p className={`dashboard-save-message is-${status.type}`} role={status.type === 'error' ? 'alert' : 'status'}>{status.message}</p>}
               <div className="dashboard-welcome">
-                <div><p className="eyebrow">PORTFOLIO EDITOR</p><h2>Welcome, M Shanmukha Sai</h2><p>Manage your portfolio details from one place.</p></div>
+                <div><p className="eyebrow">PORTFOLIO EDITOR</p><h2>Welcome, {profile.name}</h2><p>Manage your portfolio details from one place.</p></div>
                 <a className="dashboard-primary-button" href="/">View Site <span aria-hidden="true">↗</span></a>
               </div>
               <div className="dashboard-summary-grid dashboard-summary-grid-seven">
@@ -426,18 +482,18 @@ function AdminDashboard({ path }) {
                   ))}
                 </div>
               </section>
-              <p className="dashboard-temp-notice"><span aria-hidden="true">i</span>This is a client-side editor. Anyone who can access this browser can change its local portfolio data; it does not protect sensitive or private information.</p>
+              <p className="dashboard-temp-notice"><span aria-hidden="true">i</span>This dashboard is publicly writable without login. Anyone can change portfolio content or upload portfolio files. Do not store sensitive or private information here.</p>
             </>
           ) : activeSection === 'resume' ? (
             <section className="dashboard-editor-panel">
               <div className="dashboard-panel-heading"><p className="eyebrow">PORTFOLIO CONTENT</p><h2>Resume</h2><p>Upload or replace the PDF shown on your public Resume section.</p></div>
-              {resume && <div className="dashboard-resume-actions"><p>Current resume: <a href={resume.dataUrl} target="_blank" rel="noreferrer">{resume.name} ↗</a></p></div>}
+              {resume && <div className="dashboard-resume-actions"><p>Current resume: <a href={resume.url} target="_blank" rel="noreferrer">{resume.name} ↗</a></p></div>}
               <div className="dashboard-resume-actions">
                 <label className="dashboard-primary-button dashboard-file-button">{isSaving ? 'Saving…' : resume ? 'Replace Resume' : 'Upload Resume'}
                   <input type="file" accept="application/pdf,.pdf" onChange={handleResumeUpload} disabled={isSaving} />
                 </label>
                 {resume && <button className="dashboard-cancel-button" type="button" onClick={handleResumeDelete} disabled={isSaving}>Delete Resume</button>}
-                <span className="dashboard-draft-label">PDF only · Up to 2 MB</span>
+                <span className="dashboard-draft-label">PDF only · Up to 5 MB</span>
               </div>
               {status && <p className={`dashboard-save-message is-${status.type}`} role={status.type === 'error' ? 'alert' : 'status'}>{status.message}</p>}
             </section>
@@ -475,14 +531,14 @@ function AdminDashboard({ path }) {
                       </div>
                     ))}
                   </div>
-                  <div className="dashboard-form-footer"><span className="dashboard-draft-label"><span /> Saves in this browser</span><button className="dashboard-primary-button" type="submit" disabled={isSaving}>{isSaving ? 'Saving…' : 'Save Changes'} <span aria-hidden="true">↗</span></button></div>
+                  <div className="dashboard-form-footer"><span className="dashboard-draft-label"><span /> Saves to Supabase</span><button className="dashboard-primary-button" type="submit" disabled={isSaving}>{isSaving ? 'Saving…' : 'Save Changes'} <span aria-hidden="true">↗</span></button></div>
                 </form>
               )}
               {records.length > 0 && !currentSection?.singular && (
                 <div className="dashboard-record-list">{records.map((record) => (
                   <article className="dashboard-record" key={record.id}>
                     <div className="dashboard-record-copy"><h3>{getTitle(record, activeSection)}</h3><p>{getSummary(record, activeSection)}</p></div>
-                    <div className="dashboard-record-actions"><button type="button" onClick={() => beginEdit(record)}>Edit</button><button className="is-delete" type="button" onClick={() => handleDelete(record)}>Delete</button></div>
+                    <div className="dashboard-record-actions"><button type="button" onClick={() => beginEdit(record)} disabled={isSaving}>Edit</button><button className="is-delete" type="button" onClick={() => handleDelete(record)} disabled={isSaving}>Delete</button></div>
                   </article>
                 ))}</div>
               )}

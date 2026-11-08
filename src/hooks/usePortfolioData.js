@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import profilePlaceholder from '../assets/profile-placeholder.svg'
-import { getPortfolio, subscribeToPortfolioChanges } from '../services/portfolioStorage.js'
+import { getPortfolio, loadPortfolio, subscribeToPortfolioChanges } from '../services/portfolioStorage.js'
 
 function mapProject(project, index) {
   return {
@@ -21,18 +21,32 @@ function mapProject(project, index) {
 export default function usePortfolioData() {
   const [portfolio, setPortfolio] = useState(() => getPortfolio())
   const [storageError, setStorageError] = useState('')
+  const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
-    function refreshPortfolio() {
-      try {
-        setPortfolio(getPortfolio())
-        setStorageError('')
-      } catch {
-        setStorageError('Saved portfolio data could not be read. Use the dashboard to review and save your content again.')
-      }
-    }
+    let isCurrent = true
+    const unsubscribe = subscribeToPortfolioChanges((data) => {
+      if (isCurrent) setPortfolio(data)
+    })
 
-    return subscribeToPortfolioChanges(refreshPortfolio)
+    loadPortfolio({ force: true })
+      .then((data) => {
+        if (!isCurrent) return
+        setPortfolio(data)
+        setStorageError('')
+      })
+      .catch((error) => {
+        if (!isCurrent) return
+        setStorageError(error.message || 'Portfolio data could not be loaded from Supabase.')
+      })
+      .finally(() => {
+        if (isCurrent) setIsLoading(false)
+      })
+
+    return () => {
+      isCurrent = false
+      unsubscribe()
+    }
   }, [])
 
   const projects = portfolio.projects.map(mapProject)
@@ -52,8 +66,8 @@ export default function usePortfolioData() {
     projects,
     education: portfolio.education,
     achievements,
-    resumeUrl: portfolio.resume?.dataUrl || '',
+    resumeUrl: portfolio.resume?.url || '',
     storageError,
-    isLoading: false,
+    isLoading,
   }
 }

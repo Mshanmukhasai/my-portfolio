@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class APIModel(BaseModel):
@@ -101,3 +101,18 @@ class MessageCreate(APIModel):
 
 class MessageUpdate(APIModel):
     is_read: bool
+
+
+class ContactSubmission(APIModel):
+    name: str = Field(min_length=1, max_length=120)
+    email: EmailStr = Field(max_length=320)
+    subject: str = Field(min_length=1, max_length=200)
+    message: str = Field(min_length=1, max_length=5000)
+    company_website: str = Field(default="", max_length=500)
+
+    @field_validator("subject")
+    @classmethod
+    def subject_must_not_contain_line_breaks(cls, value: str) -> str:
+        if "\r" in value or "\n" in value:
+            raise ValueError("Subject must be a single line.")
+        return value

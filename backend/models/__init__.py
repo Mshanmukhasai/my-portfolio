@@ -1,6 +1,7 @@
 from .schemas import (
     AchievementCreate,
     AchievementUpdate,
+    ContactSubmission,
     EducationCreate,
     EducationUpdate,
     MessageCreate,
@@ -15,6 +16,7 @@ from .schemas import (
 __all__ = [
     "AchievementCreate",
     "AchievementUpdate",
+    "ContactSubmission",
     "EducationCreate",
     "EducationUpdate",
     "MessageCreate",

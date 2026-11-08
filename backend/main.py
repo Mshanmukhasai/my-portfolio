@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from backend.database import close_database, connect_database
-from backend.routes import achievements, auth, education, messages, profile, projects, skills
+from backend.routes import achievements, auth, contact, education, messages, profile, projects, skills
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
 logger = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(
     title="Portfolio API",
-    description="Local API for managing portfolio profile and content.",
+    description="Portfolio API with SMTP-backed contact message delivery.",
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -73,5 +73,6 @@ for router in (
     education.router,
     achievements.router,
     messages.router,
+    contact.router,
 ):
     app.include_router(router, prefix="/api")

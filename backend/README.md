@@ -1,7 +1,8 @@
 # Portfolio API
 
-> Legacy standalone API documentation. The current React frontend reads and writes portfolio
-> content directly through Supabase; see [`../supabase/README.md`](../supabase/README.md).
+FastAPI backend for portfolio APIs and the SMTP-backed Contact form. The React frontend stores
+editable portfolio content in browser `localStorage`; contact submissions are sent through this
+backend and are not stored in `localStorage`.
 
 FastAPI REST API backed by MongoDB. At startup, the API connects to the configured MongoDB
 database and ensures the `profile`, `skills`, `projects`, `education`, `achievements`, and
@@ -19,28 +20,40 @@ python -m pip install -r backend\requirements.txt
 Copy-Item backend\.env.example backend\.env
 ```
 
-Edit `backend\.env` with the MongoDB settings, your Supabase project URL, its anon/publishable
-key, and the comma-separated email addresses allowed to administer this portfolio. The
-Supabase anon/publishable key is intended for Auth API use; never use a service-role/secret
-key in the browser or for this verification flow. Supabase stores and verifies passwords.
+Edit `backend\.env` with the MongoDB settings and Gmail SMTP values described below. Keep all
+mail credentials in this backend-only file or your production secret manager; never add them to
+a Vite variable or frontend source.
 
-In Supabase Storage, create a **public** bucket named `portfolio-assets` (or set
-`SUPABASE_STORAGE_BUCKET` to your chosen bucket). Limit it to 5 MB per file and the
-`image/jpeg`, `image/png`, and `image/webp` content types. Set
-`SUPABASE_SERVICE_ROLE_KEY` in `backend\.env` to the project service-role key so the backend
-can upload and remove profile photos; this secret must never be added to `.env.local` or any
-`VITE_` variable. The API independently validates the actual image data, dimensions, and size.
-MongoDB stores only the public photo URL; the image itself stays in Supabase Storage.
+## Gmail contact delivery
 
-In the Supabase dashboard, enable Google under Authentication providers and configure the
-OAuth credentials. Add your local and production callback URLs to the Supabase redirect URL
-allowlist (for example `http://localhost:5173/admin/dashboard` and
-`http://127.0.0.1:5173/admin/dashboard`). Create or invite administrator accounts through
-Supabase and include their verified email addresses in `SUPABASE_ADMIN_EMAILS`. Publicly
-created or Google-authenticated accounts that are not on this server-side allowlist cannot
-access admin APIs.
+1. Enable 2-Step Verification on the Gmail account that will send the message.
+2. In Google Account settings, create an **App Password** for this application.
+3. Set these values in `backend\.env` (or the backend host's secret/environment settings).
+   Enter the App Password without any display spaces:
 
-Then start the API:
+   ```dotenv
+   MAIL_USERNAME=your-gmail-address@gmail.com
+   MAIL_PASSWORD=your-16-character-app-password
+   MAIL_TO=shanmukhameda20@gmail.com
+   ```
+
+The backend sends mail to Gmail using SMTP over SSL on port 465. `MAIL_USERNAME` and
+`MAIL_PASSWORD` are server-only. Do not commit the real values or set them in Vercel.
+
+## Frontend API URL and CORS
+
+For local development, create the frontend `.env.local` from `../.env.example` and set
+`VITE_API_URL=http://127.0.0.1:8000`. Start/restart Vite after changing the value. The
+backend must be running separately for the form to send messages.
+
+For deployment, set `VITE_API_URL` in the Vercel project's environment variables to the
+FastAPI backend's base origin, such as `https://your-backend.example.com` (without
+`/api/contact`), then redeploy the frontend. On the backend host, set `CORS_ORIGINS` to a
+comma-separated list of exact frontend origins, such as
+`https://your-site.vercel.app`. Add any Vercel preview/custom-domain origins that should be
+allowed. Do not use a wildcard for production.
+
+Start the API:
 
 ```powershell
 python -m uvicorn backend.main:app --reload
@@ -51,13 +64,8 @@ The API is available at `http://127.0.0.1:8000`, documentation at
 Stop the server with `Ctrl+C`.
 
 The backend loads `backend\.env` locally. In production, supply variables through your
-deployment environment/secret manager instead. Never commit `.env` or expose `MONGODB_URI`
-in frontend variables. Set `CORS_ORIGINS` to a comma-separated list of exact trusted browser
-origins.
-
-The current React frontend does not use this API. If running a separate legacy frontend
-against it, configure its API URL and Supabase public Auth key; never put the service-role
-key or database credentials in Vite variables.
+deployment environment/secret manager instead. Never commit `.env`, expose `MONGODB_URI` or
+mail credentials in frontend variables, or prefix secrets with `VITE_`.
 
 ## API endpoints
 
@@ -66,6 +74,7 @@ Public endpoints:
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/health` | Health check |
+| POST | `/api/contact` | Validate and send a contact message to `MAIL_TO` via Gmail SMTP |
 | GET | `/api/profile` | Read the profile document |
 | GET | `/api/skills` | List skills |
 | GET | `/api/projects` | List projects |
@@ -101,14 +110,12 @@ Profile photo uploads accept JPEG, PNG, and WebP files up to 5 MB and 20 megapix
 backend verifies and normalizes image data before sending it to the configured Storage
 bucket; upload and storage failures are reported by the API.
 
-Contact message submissions validate an email address and require non-empty name, subject,
-and message fields. The public endpoint accepts at most five submissions per client IP in a
-rolling ten-minute window and uses a hidden honeypot field for basic spam detection.
-Rate-limited submissions return `429` and a `Retry-After` header. The basic rate limit is
-held in backend-process memory and resets on restart; multi-worker deployments should use a
-shared rate-limit store for consistent enforcement.
+Both public submission endpoints validate an email address and require non-empty name,
+subject, and message fields. They share a limit of five submissions per client IP in a rolling
+ten-minute window and return `429` with a `Retry-After` header when exceeded. The basic limit
+is held in backend-process memory and resets on restart; multi-worker deployments should use a
+shared rate-limit store for consistent enforcement. The React form includes a hidden honeypot
+field, which the contact endpoint ignores when populated.
 
-Legacy API clients can load profile, skills, projects, education, and achievements from the
-API. Contact form submissions are stored in the `messages` collection. The current React
-frontend instead reads those portfolio sections from Supabase as documented in
-[`../supabase/README.md`](../supabase/README.md).
+The React Contact form uses `/api/contact`; it does not persist messages in browser storage.
+The other portfolio sections continue to use local browser storage in the frontend.

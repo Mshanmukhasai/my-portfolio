@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { isConfiguredEmail, isConfiguredExternalLink } from '../lib/links.js'
 
@@ -8,6 +8,8 @@ function Contact({ profile }) {
   const [values, setValues] = useState(initialForm)
   const [errors, setErrors] = useState({})
   const [status, setStatus] = useState(null)
+  const [isSending, setIsSending] = useState(false)
+  const submissionInProgress = useRef(false)
 
   function handleChange(event) {
     const { name, value } = event.target
@@ -18,6 +20,7 @@ function Contact({ profile }) {
 
   async function handleSubmit(event) {
     event.preventDefault()
+    if (submissionInProgress.current) return
 
     const form = event.currentTarget
     const formData = new FormData(form)
@@ -26,13 +29,14 @@ function Contact({ profile }) {
     const email = String(formData.get('email') ?? '').trim()
     const subject = String(formData.get('subject') ?? '').trim()
     const message = String(formData.get('message') ?? '').trim()
+    const companyWebsite = String(formData.get('company_website') ?? '').trim()
 
-    if (name.length < 2) nextErrors.name = 'Please enter your name (at least 2 characters).'
+    if (!name) nextErrors.name = 'Please enter your name.'
     if (!form.elements.email.validity.valid || !email) {
       nextErrors.email = 'Please enter a valid email address.'
     }
-    if (subject.length < 3) nextErrors.subject = 'Please enter a subject (at least 3 characters).'
-    if (message.length < 10) nextErrors.message = 'Please enter a message of at least 10 characters.'
+    if (!subject) nextErrors.subject = 'Please enter a subject.'
+    if (!message) nextErrors.message = 'Please enter a message.'
 
     setErrors(nextErrors)
 
@@ -43,11 +47,32 @@ function Contact({ profile }) {
       return
     }
 
-    if (String(formData.get('company_website') ?? '').trim()) return
-    const subjectLine = encodeURIComponent(subject)
-    const body = encodeURIComponent(`${message}\n\nFrom: ${name}\nReply to: ${email}`)
-    window.location.href = `mailto:${profile.email}?subject=${subjectLine}&body=${body}`
-    setStatus({ type: 'success', message: 'Your email app should open with your message ready to send.' })
+    if (companyWebsite) return
+    const apiUrl = import.meta.env.VITE_API_URL?.trim().replace(/\/+$/, '')
+    if (!apiUrl) {
+      setStatus({ type: 'error', message: 'Unable to send your message. Please try again.' })
+      return
+    }
+
+    submissionInProgress.current = true
+    setIsSending(true)
+    setStatus(null)
+    try {
+      const response = await fetch(`${apiUrl}/api/contact`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, subject, message, company_website: companyWebsite }),
+      })
+      if (!response.ok) throw new Error('Contact request failed.')
+
+      setValues(initialForm)
+      setStatus({ type: 'success', message: 'Message sent successfully!' })
+    } catch {
+      setStatus({ type: 'error', message: 'Unable to send your message. Please try again.' })
+    } finally {
+      submissionInProgress.current = false
+      setIsSending(false)
+    }
   }
 
   return (
@@ -161,8 +186,8 @@ function Contact({ profile }) {
             />
             {errors.message && <span className="contact-field-error" id="contact-message-error">{errors.message}</span>}
           </div>
-          <button className="contact-submit" type="submit">
-            Send Message <span aria-hidden="true">↗</span>
+          <button className="contact-submit" type="submit" disabled={isSending}>
+            {isSending ? 'Sending…' : 'Send Message'} <span aria-hidden="true">↗</span>
           </button>
           {status && (
             <p className={`contact-form-status is-${status.type}`} role={status.type === 'error' ? 'alert' : 'status'}>

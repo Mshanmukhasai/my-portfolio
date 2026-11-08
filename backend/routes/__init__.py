@@ -1,3 +1,3 @@
-from . import achievements, auth, education, messages, profile, projects, skills
+from . import achievements, auth, contact, education, messages, profile, projects, skills
 
-__all__ = ["achievements", "auth", "education", "messages", "profile", "projects", "skills"]
+__all__ = ["achievements", "auth", "contact", "education", "messages", "profile", "projects", "skills"]

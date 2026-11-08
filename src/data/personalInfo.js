@@ -6,7 +6,7 @@ const personalInfo = {
   introduction: 'I am an engineering student specializing in Artificial Intelligence and Machine Learning. I enjoy coding, learning new technologies, and building practical software applications.',
   email: 'shanmukhameda20@gmail.com',
   phone: '9030309044',
-  location: 'Jain University, Kanakapura, Karnataka, India',
+  location: 'Jain University, Kanakapura',
   linkedIn: '',
   github: '',
   photo: '/profile.jpg',

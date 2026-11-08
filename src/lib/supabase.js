@@ -9,7 +9,7 @@ export const supabase = supabaseUrl && supabaseAnonKey
 
 export function requireSupabase() {
   if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, then restart Vite.')
+    throw new Error('Supabase is not configured for this deployment. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel Project Settings > Environment Variables, then redeploy.')
   }
   return supabase
 }

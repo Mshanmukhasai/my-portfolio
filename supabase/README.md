@@ -1,15 +1,15 @@
-# Supabase portfolio storage
+# Supabase portfolio data
 
-## Database and Storage setup
+## Existing database setup
 
-In the Supabase SQL Editor, run [`portfolio.sql`](./portfolio.sql). It creates the
-`public.portfolio_content` table and the public `portfolio-assets` Storage bucket with the RLS
-policies used by this frontend.
+This frontend uses the existing `public.portfolio` table and does not create a table or Supabase
+project. In the Supabase SQL Editor, run [`portfolio.sql`](./portfolio.sql) to configure public
+read/write access for that existing table and the `portfolio-assets` Storage bucket used for
+uploaded profile photos.
 
-The portfolio is saved as one JSON document in the table's `content` column. The single-row
-upsert preserves each record's ID, so editing a skill, project, education record, or achievement
-updates the existing item rather than creating a duplicate. Profile, project, certificate, and
-resume files are uploaded to Storage; the database document stores their public URLs.
+The dashboard selects the oldest existing portfolio record and updates it. It inserts a row only
+when the table is empty. The frontend maps the table's profile, contact, education, social, and
+resume columns to the existing public portfolio sections.
 
 ## Environment variables
 
@@ -20,14 +20,14 @@ VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-public-anon-or-publishable-key
 ```
 
-Set the same two variables in Vercel's project environment settings for Production and any
-Preview environments you use, then redeploy. Keep the existing `VITE_API_URL` too if the
-Contact form is using the separate FastAPI backend. Vite variables are public browser values;
-never use a Supabase service-role/secret key in the frontend.
+Set the same two variables in Vercel Project Settings > Environment Variables for Production and
+any Preview environments you use, then redeploy. Keep `VITE_API_URL` if the Contact form is using
+the separate FastAPI backend. These Vite variables are public browser values; never use a
+Supabase service-role/secret key in the frontend.
 
 ## Public editing warning
 
 This project intentionally has no Admin authentication. The SQL policies allow anyone to read
-and edit the single portfolio record and upload or replace assets in the portfolio bucket. A
-visitor can overwrite the portfolio or upload unwanted public files. Do not store private
-information. For protected editing, add server-side authorization before enabling public use.
+and edit portfolio details and upload public profile photos. A visitor can overwrite the
+portfolio. Do not store private information. For protected editing, add server-side authorization
+before enabling public use.

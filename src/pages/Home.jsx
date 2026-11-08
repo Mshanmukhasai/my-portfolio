@@ -94,13 +94,12 @@ function Home() {
               <div className="profile-orbit profile-orbit-two" />
               <div className="profile-photo-frame">
                 <img
+                  key={profile.photo}
                   className="profile-photo"
                   src={profile.photo}
                   alt={`${profile.name} profile portrait`}
                   onError={(event) => {
-                    if (event.currentTarget.src !== profilePlaceholder) {
-                      event.currentTarget.src = profile.photoFallback || profilePlaceholder
-                    }
+                    event.currentTarget.style.visibility = 'hidden'
                   }}
                 />
               </div>
@@ -144,13 +143,12 @@ function Home() {
           <section id="about" className="about-section" aria-labelledby="about-title">
             <div className="about-intro">
               <img
+                key={profile.photo}
                 className="about-profile-photo"
                 src={profile.photo}
                 alt={`${profile.name} profile portrait`}
                 onError={(event) => {
-                  if (event.currentTarget.src !== profilePlaceholder) {
-                    event.currentTarget.src = profile.photoFallback || profilePlaceholder
-                  }
+                  event.currentTarget.style.visibility = 'hidden'
                 }}
               />
               <div className="about-section-heading">
